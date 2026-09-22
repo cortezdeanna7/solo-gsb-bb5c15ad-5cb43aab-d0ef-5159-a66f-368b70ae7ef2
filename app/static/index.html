@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>实验测量单位校验</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>⚗️ 实验测量单位校验</h1>
+  <p>解析带单位的测量表达式，自动完成 SI 词头解析、量纲换算与一阶误差传播。</p>
+</header>
+
+<main>
+  <section class="card">
+    <label class="field-label" for="expr">测量表达式</label>
+    <input id="expr" type="text" spellcheck="false" autocomplete="off"
+           placeholder="例如：2.5±0.1 km/h * 3.0±0.1 h to km">
+    <div class="chips" id="symbol-chips"></div>
+    <div class="chips examples" id="examples"></div>
+
+    <div class="actions">
+      <button id="btn-eval" class="primary">计算</button>
+      <button id="btn-save">保存结果</button>
+      <button id="btn-copy">复制输入</button>
+      <button id="btn-clear">清空</button>
+      <input id="name" type="text" maxlength="80" placeholder="名称（保存时可选）">
+    </div>
+
+    <div id="error-box" class="error hidden"></div>
+    <div id="result-box" class="result hidden"></div>
+  </section>
+
+  <section class="card">
+    <div class="history-head">
+      <h2>已保存的计算</h2>
+      <div class="history-actions">
+        <button id="btn-export-json">导出 JSON</button>
+        <button id="btn-export-csv">导出 CSV</button>
+        <button id="btn-refresh">刷新</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table id="history">
+        <thead>
+          <tr><th>名称</th><th>表达式</th><th>结果</th><th>时间 (UTC)</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p id="history-empty" class="muted">暂无保存的计算条目。</p>
+  </section>
+</main>
+
+<footer>
+  <p>语法：<code>值±不确定度 单位</code>，支持 <code>+ - * / ^</code>、括号、
+     SI 词头（k、m、µ…）与 <code>to 目标单位</code> 换算；不确定度可写百分比，如 <code>2.5±2% V</code>。</p>
+  <p>API 文档：<a href="/docs">/docs</a></p>
+</footer>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/app.js"></script>
+</body>
+</html>
