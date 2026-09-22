@@ -33,6 +33,26 @@
   </section>
 
   <section class="card">
+    <h2 class="card-title">重复测量合并</h2>
+    <p class="card-sub muted">每行输入一个测量值（<code>值±不确定度 单位</code>），系统换算到同一量纲后按逆方差加权求平均（σ = 1/√Σw）；不带 <code>±</code> 的行视为精确值。</p>
+    <label class="field-label" for="agg-lines">测量行（每行一个）</label>
+    <textarea id="agg-lines" rows="6" spellcheck="false"
+      placeholder="2.5±0.1 km&#10;2.53±0.08 km&#10;2547±25 m"></textarea>
+    <div class="chips" id="agg-symbol-chips"></div>
+
+    <div class="actions">
+      <button id="btn-agg" class="primary">合并计算</button>
+      <button id="btn-agg-example">填入示例</button>
+      <button id="btn-agg-clear">清空</button>
+      <input id="agg-unit" type="text" spellcheck="false" autocomplete="off"
+             placeholder="输出单位（如 km，留空则用 SI 单位）">
+    </div>
+
+    <div id="agg-error-box" class="error hidden"></div>
+    <div id="agg-result-box" class="result hidden"></div>
+  </section>
+
+  <section class="card">
     <div class="history-head">
       <h2>已保存的计算</h2>
       <div class="history-actions">
@@ -56,6 +76,7 @@
 <footer>
   <p>语法：<code>值±不确定度 单位</code>，支持 <code>+ - * / ^</code>、括号、
      SI 词头（k、m、µ…）与 <code>to 目标单位</code> 换算；不确定度可写百分比，如 <code>2.5±2% V</code>。</p>
+  <p>重复测量合并：每行一个 <code>值±不确定度 单位</code>，按逆方差加权平均；无 <code>±</code> 的行按精确值处理。</p>
   <p>API 文档：<a href="/docs">/docs</a></p>
 </footer>
 

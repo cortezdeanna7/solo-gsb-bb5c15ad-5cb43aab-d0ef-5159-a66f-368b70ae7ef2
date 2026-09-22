@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import database
+from .aggregate import aggregate
 from .evaluator import EvalError, evaluate
 
 
@@ -34,6 +35,11 @@ class SaveIn(BaseModel):
     expression: str = ""
 
 
+class AggregateIn(BaseModel):
+    lines: str = ""
+    unit: str = ""
+
+
 def _err(field: str, message: str, pos: int | None = None) -> dict:
     return {"field": field, "message": message, "position": pos}
 
@@ -50,6 +56,15 @@ def api_evaluate(body: EvaluateIn):
     except EvalError as e:
         return {"ok": False, "errors": [_err(e.field, e.message, e.pos)]}
     return {"ok": True, "result": result}
+
+
+@app.post("/api/aggregate")
+def api_aggregate(body: AggregateIn):
+    """重复测量合并：逐行解析测量值，按逆方差加权求平均。
+
+    行级错误（未知单位、量纲不符、格式错误、精确值冲突）均带行号返回。
+    """
+    return aggregate(body.lines, body.unit)
 
 
 @app.post("/api/calculations", status_code=201)

@@ -2,6 +2,8 @@
 
 输入带单位的测量值与表达式，系统自动解析括号、乘除、幂与 SI 词头，按维度（量纲）执行单位换算，并用**一阶误差传播**计算结果的不确定度。对量纲不兼容、零除和非法指数给出**字段级错误**（含出错位置）。支持保存计算条目、复制输入、导出 JSON/CSV。
 
+新增**重复测量合并**面板：逐行输入多次测量值（`值±不确定度 单位`）并指定输出单位，系统解析每行、换算到同一量纲后按**逆方差权重**计算加权平均（合成不确定度 σ = 1/√Σw），同时显示有效行、逐行权重与相对不确定度；无 `±` 的行按精确值处理，行级错误（未知单位、量纲不符、格式错误、精确值冲突）均标明行号。
+
 - 后端：FastAPI + SQLite
 - 前端：原生 JavaScript（无构建步骤）
 - 部署：Docker Compose 一键启动
@@ -29,7 +31,7 @@ uvicorn app.main:app --reload
 # 访问 http://localhost:8000
 ```
 
-运行核心逻辑自测（23 项）：
+运行核心逻辑自测（41 项）：
 
 ```bash
 python tests/test_core.py
@@ -74,6 +76,66 @@ python tests/test_core.py
 
 结果显示时，不确定度保留两位有效数字，测量值对齐到同一小数位。
 
+## 重复测量合并
+
+主界面第二个面板（或 `POST /api/aggregate`）用于合并多次重复测量：
+
+- **输入**：每行一个测量值 `值±不确定度 单位`（空行忽略；行语法与表达式求值一致，只是不允许行内 `to` 换算）；`输出单位` 指定结果的表示单位，留空则使用 SI 单位。
+- **加权平均**：每行解析后换算到 SI，要求量纲一致。权重 `w_i = 1/σ_i²`，结果 `x̄ = Σw_i·x_i / Σw_i`，合成不确定度 `σ = 1/√Σw_i`。
+- **精确值**：不带 `±` 的行视为精确值（σ = 0）。单个（或多个互相一致的）精确值直接作为结果；多个精确值互相矛盾时，所有精确行都会收到逐行错误。
+- **行级错误**：未知单位、量纲不符、格式错误均携带 1 起始的行号与该行原文，前端逐行标注。
+
+接口示例：
+
+```bash
+curl -X POST http://localhost:8000/api/aggregate \
+  -H "Content-Type: application/json" \
+  -d '{"lines": "2.5±0.1 km\n2.53±0.08 km\n2547±25 m\n2.55±0.12 km", "unit": "km"}'
+```
+
+响应（节选）：
+
+```json
+{
+  "ok": true,
+  "result": {
+    "value": 2.543288135593221,
+    "uncertainty": 0.02278800527200563,
+    "unit": "km",
+    "formatted": "2.543 ± 0.023 km",
+    "relative_uncertainty": 0.008960056453332347,
+    "method": "weighted",
+    "row_count": 4,
+    "exact_count": 0,
+    "weighted_count": 4,
+    "rows": [
+      {"line": 1, "text": "2.5±0.1 km", "formatted": "2.50 ± 0.10 km",
+       "exact": false, "weight_share": 0.0519},
+      {"line": 3, "text": "2547±25 m", "formatted": "2.547 ± 0.025 km",
+       "exact": false, "weight_share": 0.8309}
+    ]
+  }
+}
+```
+
+行级错误示例（第 2 行未知单位、第 3 行格式错误）：
+
+```bash
+curl -X POST http://localhost:8000/api/aggregate \
+  -H "Content-Type: application/json" \
+  -d '{"lines": "2.5±0.1 m\n3 blorp\n2.6±", "unit": "m"}'
+```
+
+```json
+{
+  "ok": false,
+  "errors": [
+    {"line": 2, "message": "未知单位 'blorp'…", "position": 2, "text": "3 blorp"},
+    {"line": 3, "message": "'±' 之后应是不确定度数值", "position": 3, "text": "2.6±"}
+  ]
+}
+```
+
 ## 字段级错误
 
 所有错误以 `{"ok": false, "errors": [{"field", "message", "position"}]}` 返回，前端在对应字段下标注出错位置：
@@ -93,6 +155,7 @@ python tests/test_core.py
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/api/evaluate` | 求值（不保存）。Body: `{"expression": "..."}` |
+| POST | `/api/aggregate` | 重复测量合并。Body: `{"lines": "行1\n行2…", "unit": "km"}`（`unit` 可空） |
 | POST | `/api/calculations` | 求值并保存条目。Body: `{"name": "...", "expression": "..."}` |
 | GET | `/api/calculations` | 列出已保存条目 |
 | DELETE | `/api/calculations/{id}` | 删除条目 |
@@ -108,6 +171,7 @@ python tests/test_core.py
 ├── app/
 │   ├── main.py          # FastAPI 路由（API + 静态页面）
 │   ├── evaluator.py     # 词法/语法分析、量纲运算、一阶误差传播
+│   ├── aggregate.py     # 重复测量合并：逐行解析、逆方差加权平均
 │   ├── units.py         # SI 单位、词头、量纲向量与显示
 │   ├── database.py      # SQLite 持久化
 │   └── static/          # 原生前端（index.html / app.js / style.css）

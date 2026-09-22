@@ -1,10 +1,14 @@
-"""核心功能自测：解析、换算、误差传播与三类错误。直接运行：python tests/test_core.py"""
+"""核心功能自测：解析、换算、误差传播、三类错误与重复测量合并。
+
+直接运行：python tests/test_core.py
+"""
 import math
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from app.aggregate import aggregate  # noqa: E402
 from app.evaluator import EvalError, evaluate  # noqa: E402
 
 PASSED = 0
@@ -87,5 +91,68 @@ check(evaluate("2.5±0.1 km to km")["formatted"] == "2.50 ± 0.10 km", "格式�
 check(evaluate("2.5±0.1 km")["formatted"] == "2500 ± 100 m", "无 to 时以 SI 单位表示")
 r = evaluate("6.022e23 1/mol")
 check(close(r["value"], 6.022e23) and r["unit"] == "mol⁻¹", "1/mol 单位写法")
+
+# --- 重复测量合并 ---
+r = aggregate("2.5±0.1 km\n2.6±0.2 km", "km")
+check(r["ok"] and close(r["result"]["value"], 2.52), "加权平均（w = 1/σ²）")
+check(close(r["result"]["uncertainty"], 1 / math.sqrt(100 + 25)),
+      "合成不确定度 1/√Σw")
+check(r["result"]["row_count"] == 2 and r["result"]["weighted_count"] == 2,
+      "有效行计数")
+
+r = aggregate("2.5±0.1 km\n2550±30 m", "km")
+w1, w2 = 1 / 0.1 ** 2, 1 / 0.03 ** 2
+check(r["ok"] and close(r["result"]["value"],
+                        (w1 * 2.5 + w2 * 2.55) / (w1 + w2)),
+      "不同单位换算到同一量纲后加权")
+
+r = aggregate("2.5 m", "m")
+check(r["ok"] and r["result"]["method"] == "exact"
+      and r["result"]["uncertainty"] == 0 and close(r["result"]["value"], 2.5),
+      "单个精确值直接作为结果")
+
+r = aggregate("2.5 m\n250 cm", "m")
+check(r["ok"] and close(r["result"]["value"], 2.5)
+      and r["result"]["uncertainty"] == 0, "多个一致的精确值")
+
+r = aggregate("2.5 m\n2.6±0.1 m", "m")
+check(r["ok"] and r["result"]["method"] == "exact"
+      and close(r["result"]["value"], 2.5), "精确值优先于加权行")
+
+r = aggregate("2.5 m\n2.6 m", "m")
+check(not r["ok"] and [e["line"] for e in r["errors"]] == [1, 2],
+      "多个不一致精确值逐行报错")
+
+r = aggregate("2.5±0.1 m\n3 blorp", "m")
+check(not r["ok"] and r["errors"][0]["line"] == 2
+      and "未知单位" in r["errors"][0]["message"], "未知单位标明行号")
+
+r = aggregate("2.5±0.1 m\n3±0.1 s", "m")
+check(not r["ok"] and r["errors"][0]["line"] == 2
+      and "量纲" in r["errors"][0]["message"], "量纲不符标明行号")
+
+r = aggregate("2.5±0.1 m\n2.6±", "m")
+check(not r["ok"] and r["errors"][0]["line"] == 2, "格式错误标明行号")
+
+r = aggregate("2.5±0.1 m\n2.6±0.1 m to km", "m")
+check(not r["ok"] and r["errors"][0]["line"] == 2, "行内 to 换算报错")
+
+check(not aggregate("", "m")["ok"], "空输入报错")
+check(not aggregate("   \n  ", "m")["ok"], "全空行报错")
+
+r = aggregate("2.5±0.1 km\n2.6±0.2 km", "")
+check(r["ok"] and r["result"]["unit"] == "m"
+      and close(r["result"]["value"], 2520), "不指定输出单位时使用 SI 单位")
+
+r = aggregate("2.5±0.1 km\n2.6±0.2 km", "km")
+check(close(r["result"]["relative_uncertainty"],
+            r["result"]["uncertainty"] / r["result"]["value"]),
+      "相对不确定度")
+
+r = aggregate("2.5±0.1 m", "s")
+check(not r["ok"] and "量纲" in r["errors"][0]["message"], "输出单位量纲不符")
+
+r = aggregate("2.5±0.1 m", "blorp")
+check(not r["ok"] and r["errors"][0]["field"] == "unit", "输出单位未知报错")
 
 print(f"\n全部 {PASSED} 项检查通过。")

@@ -4,6 +4,10 @@ const $ = (id) => document.getElementById(id);
 
 const FIELD_NAMES = { expression: "表达式", name: "名称" };
 
+const AGG_FIELD_NAMES = { unit: "输出单位", lines: "测量行" };
+
+const AGG_EXAMPLE = "2.5±0.1 km\n2.53±0.08 km\n2547±25 m\n2.55±0.12 km";
+
 const SYMBOLS = ["±", "·", "²", "³", "⁻", "µ", "Ω", "^", "%"];
 
 const EXAMPLES = [
@@ -134,6 +138,89 @@ async function doSave() {
   loadHistory();
 }
 
+// ------------------------------------------------------------ 重复测量合并
+
+function showAggErrors(errors) {
+  const box = $("agg-error-box");
+  $("agg-result-box").classList.add("hidden");
+  box.classList.remove("hidden");
+  box.innerHTML = "";
+  for (const e of errors) {
+    const div = document.createElement("div");
+    div.className = "error-item";
+    let html;
+    if (e.line != null) {
+      html = `<strong>第 ${e.line} 行</strong>：${escapeHtml(e.message)}`;
+      if (e.position != null && e.position >= 0 && e.text) {
+        const pos = Math.min(e.position, e.text.length);
+        html += `<pre>${escapeHtml(e.text)}\n${" ".repeat(pos)}^</pre>`;
+      }
+    } else {
+      const field = AGG_FIELD_NAMES[e.field] || e.field;
+      html = `<strong>${escapeHtml(field)}</strong>：${escapeHtml(e.message)}`;
+      if (e.field === "unit" && e.position != null && e.position >= 0) {
+        const u = $("agg-unit").value;
+        const pos = Math.min(e.position, u.length);
+        html += `<pre>${escapeHtml(u)}\n${" ".repeat(pos)}^</pre>`;
+      }
+    }
+    div.innerHTML = html;
+    box.appendChild(div);
+  }
+}
+
+function showAggResult(r) {
+  $("agg-error-box").classList.add("hidden");
+  const box = $("agg-result-box");
+  box.classList.remove("hidden");
+  const rows = [];
+  rows.push(`<div><span>有效行</span><b>${r.row_count} 行（加权 ${r.weighted_count}，精确 ${r.exact_count}）</b></div>`);
+  rows.push(r.method === "exact"
+    ? `<div><span>合并方式</span><b>存在精确值，直接作为结果</b></div>`
+    : `<div><span>合并方式</span><b>逆方差加权平均（σ = 1/√Σw）</b></div>`);
+  if (r.si && r.si.formatted !== r.formatted) {
+    rows.push(`<div><span>SI 换算</span><b>${escapeHtml(r.si.formatted)}</b></div>`);
+  }
+  rows.push(`<div><span>量纲</span><b>${escapeHtml(r.dimension)}</b></div>`);
+  if (r.relative_uncertainty != null && r.relative_uncertainty !== "") {
+    const rel = (r.relative_uncertainty * 100).toPrecision(3);
+    rows.push(`<div><span>相对不确定度</span><b>${rel} %</b></div>`);
+  }
+  const bodyRows = r.rows.map((row) => {
+    const w = row.exact ? "精确值"
+      : row.weight_share != null ? (row.weight_share * 100).toFixed(1) + " %"
+      : "—";
+    return `<tr><td>${row.line}</td>` +
+      `<td><code>${escapeHtml(row.text)}</code></td>` +
+      `<td class="nowrap">${escapeHtml(row.formatted)}</td>` +
+      `<td class="nowrap">${w}</td></tr>`;
+  }).join("");
+  box.innerHTML = `
+    <div class="result-main">${escapeHtml(r.formatted)}</div>
+    <div class="result-rows">${rows.join("")}</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>行</th><th>输入</th><th>换算值</th><th>权重</th></tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>
+    <button id="btn-copy-agg" class="mini">复制结果</button>`;
+  $("btn-copy-agg").onclick = () => copyText(r.formatted);
+}
+
+async function doAggregate() {
+  const data = await api("/api/aggregate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      lines: $("agg-lines").value,
+      unit: $("agg-unit").value,
+    }),
+  });
+  if (data.ok) showAggResult(data.result);
+  else showAggErrors(data.errors);
+}
+
 // ------------------------------------------------------------ 历史记录
 
 function renderHistory(items) {
@@ -212,6 +299,35 @@ function init() {
   $("btn-refresh").onclick = loadHistory;
   $("expr").addEventListener("keydown", (e) => {
     if (e.key === "Enter") doEvaluate();
+  });
+
+  // 重复测量合并面板
+  for (const s of SYMBOLS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.textContent = s;
+    b.onclick = () => insertAtCursor($("agg-lines"), s);
+    $("agg-symbol-chips").appendChild(b);
+  }
+  $("btn-agg").onclick = doAggregate;
+  $("btn-agg-example").onclick = () => {
+    $("agg-lines").value = AGG_EXAMPLE;
+    $("agg-unit").value = "km";
+    doAggregate();
+  };
+  $("btn-agg-clear").onclick = () => {
+    $("agg-lines").value = "";
+    $("agg-unit").value = "";
+    $("agg-error-box").classList.add("hidden");
+    $("agg-result-box").classList.add("hidden");
+    $("agg-lines").focus();
+  };
+  $("agg-lines").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) doAggregate();
+  });
+  $("agg-unit").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") doAggregate();
   });
 
   loadHistory();
