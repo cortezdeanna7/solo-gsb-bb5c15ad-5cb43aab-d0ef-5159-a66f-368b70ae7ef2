@@ -5,6 +5,7 @@ import csv
 import io
 import os
 from contextlib import asynccontextmanager
+from typing import List, Union
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -12,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import database
+from .aggregate import aggregate
 from .evaluator import EvalError, evaluate
 
 
@@ -34,6 +36,11 @@ class SaveIn(BaseModel):
     expression: str = ""
 
 
+class AggregateIn(BaseModel):
+    lines: Union[str, List[str]] = ""   # 多行文本或字符串数组
+    unit: str = ""                      # 输出单位，留空用 SI 单位
+
+
 def _err(field: str, message: str, pos: int | None = None) -> dict:
     return {"field": field, "message": message, "position": pos}
 
@@ -50,6 +57,14 @@ def api_evaluate(body: EvaluateIn):
     except EvalError as e:
         return {"ok": False, "errors": [_err(e.field, e.message, e.pos)]}
     return {"ok": True, "result": result}
+
+
+@app.post("/api/aggregate")
+def api_aggregate(body: AggregateIn):
+    """重复测量合并：逐行解析、统一量纲后按逆方差加权平均。"""
+    lines = body.lines
+    text = "\n".join(lines) if isinstance(lines, list) else lines
+    return aggregate(text, body.unit)
 
 
 @app.post("/api/calculations", status_code=201)

@@ -134,6 +134,80 @@ async function doSave() {
   loadHistory();
 }
 
+// ------------------------------------------------------------ 重复测量合并
+
+const AGG_EXAMPLE = "2.5±0.1 km\n2.62±0.08 km\n2.55±0.05 km";
+
+function showAggErrors(errors) {
+  const box = $("agg-error-box");
+  $("agg-result-box").classList.add("hidden");
+  box.classList.remove("hidden");
+  box.innerHTML = "";
+  const lines = $("agg-lines").value.split("\n");
+  for (const e of errors) {
+    const div = document.createElement("div");
+    div.className = "error-item";
+    const where = e.line != null ? `第 ${e.line} 行`
+      : (e.field === "unit" ? "输出单位" : "输入");
+    let html = `<strong>${where}</strong>：${escapeHtml(e.message)}`;
+    if (e.line != null && e.position != null && e.position >= 0) {
+      const text = (lines[e.line - 1] || "").trim();
+      const pos = Math.min(e.position, text.length);
+      html += `<pre>${escapeHtml(text)}\n${" ".repeat(pos)}^</pre>`;
+    }
+    div.innerHTML = html;
+    box.appendChild(div);
+  }
+}
+
+function showAggResult(r, rows) {
+  $("agg-error-box").classList.add("hidden");
+  const box = $("agg-result-box");
+  box.classList.remove("hidden");
+  const info = [];
+  info.push(`<div><span>合并方式</span><b>${r.method === "exact" ? "精确值（无不确定度）" : "逆方差加权平均"}</b></div>`);
+  info.push(`<div><span>有效行数</span><b>${r.count}</b></div>`);
+  if (r.si && r.si.formatted !== r.formatted) {
+    info.push(`<div><span>SI 换算</span><b>${escapeHtml(r.si.formatted)}</b></div>`);
+  }
+  info.push(`<div><span>量纲</span><b>${escapeHtml(r.dimension)}</b></div>`);
+  if (typeof r.relative_uncertainty === "number") {
+    const rel = (r.relative_uncertainty * 100).toPrecision(3);
+    info.push(`<div><span>相对不确定度</span><b>${rel} %</b></div>`);
+  }
+  const body = rows.map((row) => `
+    <tr>
+      <td>${row.line}</td>
+      <td><code>${escapeHtml(row.input)}</code></td>
+      <td class="ok-value">${escapeHtml(row.formatted)}</td>
+      <td>${row.exact ? "∞（精确）" : (row.weight == null ? "—" : Number(row.weight).toPrecision(3))}</td>
+    </tr>`).join("");
+  box.innerHTML = `
+    <div class="result-main">${escapeHtml(r.formatted)}</div>
+    <div class="result-rows">${info.join("")}</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>行</th><th>输入</th><th>数值</th><th>权重</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+    <button id="btn-copy-agg" class="mini">复制结果</button>`;
+  $("btn-copy-agg").onclick = () => copyText(r.formatted);
+}
+
+async function doAggregate() {
+  const data = await api("/api/aggregate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      lines: $("agg-lines").value,
+      unit: $("agg-unit").value,
+    }),
+  });
+  if (data.ok) showAggResult(data.result, data.rows);
+  else showAggErrors(data.errors);
+}
+
 // ------------------------------------------------------------ 历史记录
 
 function renderHistory(items) {
@@ -212,6 +286,23 @@ function init() {
   $("btn-refresh").onclick = loadHistory;
   $("expr").addEventListener("keydown", (e) => {
     if (e.key === "Enter") doEvaluate();
+  });
+
+  $("btn-agg").onclick = doAggregate;
+  $("btn-agg-example").onclick = () => {
+    $("agg-lines").value = AGG_EXAMPLE;
+    $("agg-unit").value = "km";
+    $("agg-lines").focus();
+  };
+  $("btn-agg-clear").onclick = () => {
+    $("agg-lines").value = "";
+    $("agg-unit").value = "";
+    $("agg-error-box").classList.add("hidden");
+    $("agg-result-box").classList.add("hidden");
+    $("agg-lines").focus();
+  };
+  $("agg-lines").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) doAggregate();
   });
 
   loadHistory();

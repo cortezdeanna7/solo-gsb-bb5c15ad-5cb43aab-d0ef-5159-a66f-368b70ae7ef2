@@ -2,6 +2,8 @@
 
 输入带单位的测量值与表达式，系统自动解析括号、乘除、幂与 SI 词头，按维度（量纲）执行单位换算，并用**一阶误差传播**计算结果的不确定度。对量纲不兼容、零除和非法指数给出**字段级错误**（含出错位置）。支持保存计算条目、复制输入、导出 JSON/CSV。
 
+新增**重复测量合并**：逐行输入多次测量值（`值±不确定度 单位`），系统统一量纲后按**逆方差权重**加权平均，合成不确定度 `σ = 1/√Σw`，并展示有效行、结果与相对不确定度；无不确定度的行按精确值处理。
+
 - 后端：FastAPI + SQLite
 - 前端：原生 JavaScript（无构建步骤）
 - 部署：Docker Compose 一键启动
@@ -29,7 +31,7 @@ uvicorn app.main:app --reload
 # 访问 http://localhost:8000
 ```
 
-运行核心逻辑自测（23 项）：
+运行核心逻辑自测（42 项）：
 
 ```bash
 python tests/test_core.py
@@ -88,11 +90,64 @@ python tests/test_core.py
 | 未知单位 | `2 blorp` | `未知单位 'blorp'…` |
 | 表单校验 | 空表达式、名称超长 | `field: expression / name` |
 
+## 重复测量合并
+
+主界面第二个面板（或 `POST /api/aggregate`）用于合并同一物理量的多次测量：逐行输入
+`值±不确定度 单位`（复用表达式语法，支持 SI 词头与百分比不确定度），指定输出单位后，
+系统把每行换算到 SI、校验量纲一致，再按**逆方差权重**合并：
+
+```
+w_i = 1/σ_i²        x̄ = Σ(w_i·x_i)/Σw_i        σ = 1/√Σw_i
+```
+
+合并规则：
+
+- **无不确定度的行按精确值处理**：全部精确值一致时直接作为结果（σ = 0）；
+  多个精确值互相矛盾时**逐行报错**。
+- 未知单位、量纲不符、格式错误均**标明行号**；空行自动跳过。
+- 响应包含有效行明细（换算到输出单位的数值与相对权重）、合并结果与相对不确定度。
+
+接口示例：
+
+```bash
+curl -X POST http://localhost:8000/api/aggregate \
+  -H "Content-Type: application/json" \
+  -d '{"lines": "2.5±0.1 km\n2.62±0.08 km\n2.55±0.05 km", "unit": "km"}'
+```
+
+`lines` 也接受字符串数组（`["2.5±0.1 km", …]`）；`unit` 留空时结果以 SI 单位表示。响应（节选）：
+
+```json
+{
+  "ok": true,
+  "result": {
+    "value": 2.5590476190476195,
+    "uncertainty": 0.039036002917941334,
+    "unit": "km",
+    "formatted": "2.559 ± 0.039 km",
+    "relative_uncertainty": 0.01525411353324838,
+    "dimension": "L",
+    "method": "weighted",
+    "count": 3
+  },
+  "rows": [
+    {"line": 1, "input": "2.5±0.1 km", "formatted": "2.50 ± 0.10 km", "exact": false, "weight": 0.25}
+  ]
+}
+```
+
+出错时逐行返回（`line` 为行号，`position` 为行内字符位置）：
+
+```json
+{"ok": false, "errors": [{"line": 2, "message": "未知单位 'blorp'…", "position": 8}]}
+```
+
 ## API 一览
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/api/evaluate` | 求值（不保存）。Body: `{"expression": "..."}` |
+| POST | `/api/aggregate` | 重复测量合并。Body: `{"lines": "行1\n行2…", "unit": "km"}` |
 | POST | `/api/calculations` | 求值并保存条目。Body: `{"name": "...", "expression": "..."}` |
 | GET | `/api/calculations` | 列出已保存条目 |
 | DELETE | `/api/calculations/{id}` | 删除条目 |
@@ -108,6 +163,7 @@ python tests/test_core.py
 ├── app/
 │   ├── main.py          # FastAPI 路由（API + 静态页面）
 │   ├── evaluator.py     # 词法/语法分析、量纲运算、一阶误差传播
+│   ├── aggregate.py     # 重复测量合并：逐行解析、逆方差加权平均
 │   ├── units.py         # SI 单位、词头、量纲向量与显示
 │   ├── database.py      # SQLite 持久化
 │   └── static/          # 原生前端（index.html / app.js / style.css）

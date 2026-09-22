@@ -33,6 +33,24 @@
   </section>
 
   <section class="card">
+    <h2 class="card-title">重复测量合并</h2>
+    <p class="muted agg-hint">逐行输入多次测量（<code>值±不确定度 单位</code>），系统统一量纲后按逆方差权重
+      <code>w = 1/σ²</code> 加权平均，合成不确定度 <code>σ = 1/√Σw</code>；
+      无不确定度的行按精确值处理。空行自动跳过，<kbd>Ctrl</kbd>+<kbd>Enter</kbd> 快捷计算。</p>
+    <textarea id="agg-lines" rows="5" spellcheck="false"
+      placeholder="2.5±0.1 km&#10;2.62±0.08 km&#10;2.55±0.05 km"></textarea>
+    <div class="actions">
+      <button id="btn-agg" class="primary">合并计算</button>
+      <button id="btn-agg-example">填入示例</button>
+      <button id="btn-agg-clear">清空</button>
+      <input id="agg-unit" type="text" spellcheck="false" autocomplete="off"
+             placeholder="输出单位（如 km，留空则用 SI 单位）">
+    </div>
+    <div id="agg-error-box" class="error hidden"></div>
+    <div id="agg-result-box" class="result hidden"></div>
+  </section>
+
+  <section class="card">
     <div class="history-head">
       <h2>已保存的计算</h2>
       <div class="history-actions">
